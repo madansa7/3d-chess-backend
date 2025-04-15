@@ -1,35 +1,37 @@
 const express = require('express');
-const app = express();
-const http = require('http').Server(app);
-const cors = require('cors');
-const { Server } = require('socket.io');
+const http = require('http');
+const socketIO = require('socket.io');
 const { Chess } = require('chess.js');
 
-app.use(cors());
-const io = new Server(http, { cors: { origin: '*' } });
+const app = express();
+const server = http.createServer(app);
+const io = socketIO(server, { cors: { origin: '*' } });
 
-const chess = new Chess();
+const games = {};
 
 io.on('connection', (socket) => {
-    console.log('user connected:', socket.id);
-    socket.emit('init', chess.fen());
+  console.log(`🔌 New client connected: ${socket.id}`);
 
-    socket.on('move', (move) => {
-        let result = chess.move(move);
-        if (result) {
-            io.emit('move', move);
-        } else {
-            socket.emit('invalid_move', move);
-        }
-    });
+  socket.on('joinGame', (roomId) => {
+    socket.join(roomId);
+    if (!games[roomId]) {
+      games[roomId] = new Chess();
+    }
+    io.to(roomId).emit('gameState', games[roomId].fen());
+  });
 
-    socket.on('disconnect', () => {
-        console.log('user disconnected:', socket.id);
-        chess.reset();
-        io.emit('reset', chess.fen());
-    });
+  socket.on('makeMove', ({ roomId, move }) => {
+    const game = games[roomId];
+    if (game && game.move(move)) {
+      io.to(roomId).emit('gameState', game.fen());
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`🔌 Client disconnected: ${socket.id}`);
+  });
 });
 
-http.listen(process.env.PORT || 4000, () => {
-    console.log('Server running');
-});
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+
